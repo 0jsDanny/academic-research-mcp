@@ -1,0 +1,5 @@
+mcp<2
+pydantic<2.11
+requests>=2.31.0
+curl-cffi>=0.14.0
+beautifulsoup4>=4.12.0

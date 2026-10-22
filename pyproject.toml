@@ -1,0 +1,27 @@
+[project]
+name = "academic-research-mcp"
+version = "1.0.0"
+description = "Advanced Academic Research & Sci-Hub MCP Server with Multi-Database Screening, Snowballing Citation Chaining, and Automated Full-Text PDF Retrieval."
+readme = "README.md"
+authors = [
+    { name = "Daniel & Contributors" }
+]
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "mcp<2",
+    "pydantic<2.11",
+    "requests>=2.31.0",
+    "curl-cffi>=0.14.0",
+    "beautifulsoup4>=4.12.0",
+]
+
+[project.scripts]
+academic-mcp = "academic_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/academic_mcp"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
