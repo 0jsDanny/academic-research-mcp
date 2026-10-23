@@ -204,6 +204,62 @@ async def get_paper_references(doi: str, num_results: int = 10) -> List[Dict[str
     return await asyncio.to_thread(_get_references, doi, num_results)
 
 
+@mcp.tool()
+async def get_paper_tldr(doi: str) -> Dict[str, Any]:
+    """
+    Ai2 Asta / Semantic Scholar AI Summary: Get a single-sentence executive TLDR summary
+    and influential citation metrics for a paper.
+
+    Args:
+        doi: The DOI of the target paper.
+    """
+    from academic_mcp.search_engine import get_paper_tldr as _tldr
+    return await asyncio.to_thread(_tldr, doi)
+
+
+@mcp.tool()
+async def get_similar_papers(doi: str, num_results: int = 10) -> List[Dict[str, Any]]:
+    """
+    ResearchRabbit-style discovery: Find semantically and co-citationally related papers
+    building on or complementing a seed paper.
+
+    Args:
+        doi: The DOI of the seed paper.
+        num_results: Max number of related papers to return (default: 10).
+    """
+    from academic_mcp.search_engine import get_similar_papers as _similar
+    return await asyncio.to_thread(_similar, doi, num_results)
+
+
+@mcp.tool()
+async def export_papers_to_bibtex(dois: List[str], output_path: str) -> Dict[str, Any]:
+    """
+    Zotero & VOSviewer Integration: Export official BibTeX citations for a list of DOIs
+    directly into a .bib file. Ready to import into reference managers or bibliometric network tools.
+
+    Args:
+        dois: List of DOI strings to export.
+        output_path: File path on disk (e.g. 'C:/Users/User/Downloads/my_library.bib').
+    """
+    from academic_mcp.search_engine import export_to_bibtex as _bibtex
+    return await asyncio.to_thread(_bibtex, dois, output_path)
+
+
+@mcp.tool()
+async def generate_author_request_template(doi: str, language: str = "pt") -> Dict[str, Any]:
+    """
+    Direct Author Request Generator: When all automated routes fail to retrieve a paywalled paper,
+    generates a polite, ready-to-send email or ResearchGate message to the corresponding author
+    requesting a personal academic copy/preprint.
+
+    Args:
+        doi: The DOI of the target paper.
+        language: 'pt' for Portuguese, 'en' for English.
+    """
+    from academic_mcp.search_engine import generate_author_request as _req
+    return await asyncio.to_thread(_req, doi, language)
+
+
 def main():
     mcp.run(transport="stdio")
 

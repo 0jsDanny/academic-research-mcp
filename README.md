@@ -146,6 +146,29 @@ Streams and writes the PDF file directly to local disk, verifying `%PDF` headers
   * `pdf_url` *(string, required)*: Direct PDF URL.
   * `output_path` *(string, required)*: Local file path (e.g. `C:/Users/User/Downloads/paper.pdf`).
 
+### 9. `get_paper_tldr` (*Ai2 Asta / Semantic Scholar AI Summary*)
+Retrieves a 1-sentence AI executive summary (TLDR) and influential citation count.
+* **Arguments**:
+  * `doi` *(string, required)*: Target paper DOI.
+
+### 10. `get_similar_papers` (*ResearchRabbit-style Discovery*)
+Finds semantically and co-citationally related papers starting from a seed paper.
+* **Arguments**:
+  * `doi` *(string, required)*: Seed paper DOI.
+  * `num_results` *(integer, default: 10)*: Number of similar papers.
+
+### 11. `export_papers_to_bibtex` (*Zotero & VOSviewer Integration*)
+Exports official BibTeX citations for a list of DOIs into a `.bib` file for instant drag-and-drop into reference managers or network mapping tools.
+* **Arguments**:
+  * `dois` *(array of strings, required)*: List of DOIs.
+  * `output_path` *(string, required)*: Local `.bib` destination path.
+
+### 12. `generate_author_request_template` (*Direct Author Request*)
+Generates a polite, ready-to-send email or ResearchGate message to the corresponding author when an article cannot be found in open repositories.
+* **Arguments**:
+  * `doi` *(string, required)*: Target paper DOI.
+  * `language` *(string, default: "pt")*: `"pt"` or `"en"`.
+
 ---
 
 ## 🚀 Installation & Quickstart

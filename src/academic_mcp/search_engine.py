@@ -343,7 +343,12 @@ def resolve_paper_access(doi: str, known_oa_url: Optional[str] = None) -> Dict[s
     return {
         "doi": clean,
         "status": "not_found",
-        "error": "PDF could not be resolved on Sci-Hub or Open Access repositories."
+        "error": "PDF could not be resolved automatically on Sci-Hub or Open Access repositories.",
+        "fallback_search_links": {
+            "annas_archive": f"https://annas-archive.li/search?q={clean}",
+            "google_scholar": f"https://scholar.google.com/scholar?q={clean}",
+            "researchgate": f"https://www.researchgate.net/search/publication?q={clean}"
+        }
     }
 
 
@@ -458,3 +463,170 @@ def get_paper_references(doi: str, num_results: int = 10) -> List[Dict[str, Any]
     except Exception as e:
         logger.error(f"Failed to get paper references: {e}")
         return []
+
+
+def get_paper_tldr(doi: str) -> Dict[str, Any]:
+    """Retrieve AI-generated 1-sentence executive summary (TLDR) and influential citation metrics from Semantic Scholar (Ai2)."""
+    clean = _clean_doi(doi)
+    url = f"https://api.semanticscholar.org/graph/v1/paper/{clean}?fields=title,tldr,citationCount,influentialCitationCount,openAccessPdf,year,authors"
+    try:
+        resp = requests.get(url, timeout=12)
+        if resp.status_code == 200:
+            data = resp.json()
+            tldr_obj = data.get("tldr") or {}
+            authors = ", ".join(a.get("name", "") for a in data.get("authors", [])[:3])
+            return {
+                "doi": clean,
+                "title": data.get("title"),
+                "authors": authors,
+                "year": data.get("year"),
+                "tldr": tldr_obj.get("text", "No TLDR available for this paper."),
+                "total_citations": data.get("citationCount", 0),
+                "influential_citations": data.get("influentialCitationCount", 0),
+                "oa_pdf": (data.get("openAccessPdf") or {}).get("url"),
+                "status": "success"
+            }
+        return {"doi": clean, "status": "not_found", "error": f"Semantic Scholar returned status {resp.status_code}"}
+    except Exception as e:
+        logger.error(f"Semantic Scholar lookup failed: {e}")
+        return {"doi": clean, "status": "error", "error": str(e)}
+
+
+def get_similar_papers(doi: str, num_results: int = 10) -> List[Dict[str, Any]]:
+    """ResearchRabbit-style discovery: find semantically and co-citationally related papers."""
+    clean = _clean_doi(doi)
+    headers = {"User-Agent": "academic-research-mcp/1.0 (mailto:academic_research_mcp@gmail.com)"}
+    try:
+        # 1. Query OpenAlex for related works IDs
+        oa_resp = requests.get(f"https://api.openalex.org/works/https://doi.org/{clean}", headers=headers, timeout=12)
+        if oa_resp.status_code == 200:
+            rel_ids = [w.split("/")[-1] for w in oa_resp.json().get("related_works", [])[:min(num_results, 25)]]
+            if rel_ids:
+                filter_str = "|".join(rel_ids)
+                works_resp = requests.get(f"https://api.openalex.org/works?filter=openalex_id:{filter_str}&sort=cited_by_count:desc&per-page={num_results}", headers=headers, timeout=12)
+                if works_resp.status_code == 200:
+                    items = []
+                    for w in works_resp.json().get("results", []):
+                        raw_doi = w.get("doi")
+                        items.append({
+                            "title": w.get("title"),
+                            "author": ", ".join(a.get("author", {}).get("display_name", "") for a in w.get("authorships", [])[:3]),
+                            "year": str(w.get("publication_year", "")),
+                            "citations": w.get("cited_by_count", 0),
+                            "doi": _clean_doi(raw_doi) if raw_doi else None,
+                            "oa_url": w.get("open_access", {}).get("oa_url"),
+                            "source": "similar_work"
+                        })
+                    return items
+
+        # Fallback to Semantic Scholar recommendations
+        s2_url = f"https://api.semanticscholar.org/recommendations/v1/papers/forpaper/{clean}?fields=title,authors,year,citationCount&limit={num_results}"
+        s2_resp = requests.get(s2_url, timeout=12)
+        if s2_resp.status_code == 200:
+            items = []
+            for p in s2_resp.json().get("recommendedPapers", []):
+                authors = ", ".join(a.get("name", "") for a in p.get("authors", [])[:3])
+                items.append({
+                    "title": p.get("title"),
+                    "author": authors,
+                    "year": str(p.get("year", "")),
+                    "citations": p.get("citationCount", 0),
+                    "doi": None,
+                    "source": "semantic_recommendation"
+                })
+            return items
+    except Exception as e:
+        logger.error(f"Similar papers lookup failed: {e}")
+    return []
+
+
+def export_to_bibtex(dois: List[str], output_path: str) -> Dict[str, Any]:
+    """Export formatted BibTeX citations for a list of DOIs to a .bib file for Zotero, Mendeley, or VOSviewer."""
+    dest = os.path.abspath(os.path.expanduser(output_path))
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+
+    entries = []
+    errors = []
+    headers = {"Accept": "application/x-bibtex"}
+
+    for raw_doi in dois:
+        clean = _clean_doi(raw_doi)
+        if not clean:
+            continue
+        try:
+            resp = requests.get(f"https://doi.org/{clean}", headers=headers, timeout=10)
+            if resp.status_code == 200 and resp.text.strip():
+                entries.append(resp.text.strip())
+            else:
+                errors.append(f"{clean}: HTTP {resp.status_code}")
+        except Exception as e:
+            errors.append(f"{clean}: {e}")
+
+    if not entries:
+        return {"success": False, "error": f"No BibTeX entries could be retrieved. Errors: {'; '.join(errors)}"}
+
+    content = "\n\n".join(entries) + "\n"
+    with open(dest, "w", encoding="utf-8") as f:
+        f.write(content)
+
+    return {
+        "success": True,
+        "path": dest,
+        "total_exported": len(entries),
+        "errors": errors
+    }
+
+
+def generate_author_request(doi: str, language: str = "pt") -> Dict[str, Any]:
+    """Generate a polite, formal message/email to request a paywalled paper directly from the author via ResearchGate or email."""
+    clean = _clean_doi(doi)
+    title = f"Paper (DOI: {clean})"
+    author_name = "Researcher"
+
+    try:
+        resp = requests.get(f"https://api.crossref.org/works/{clean}", timeout=10)
+        if resp.status_code == 200:
+            msg = resp.json().get("message", {})
+            if msg.get("title"):
+                title = msg["title"][0]
+            authors = msg.get("author", [])
+            if authors:
+                first = authors[0]
+                author_name = f"{first.get('given', '')} {first.get('family', '')}".strip() or "Colleague"
+    except Exception:
+        pass
+
+    if language.lower() in {"pt", "portugues", "português"}:
+        subject = f"Solicitação de cópia acadêmica: {title}"
+        body = (
+            f"Prezado(a) Dr(a). {author_name},\n\n"
+            f"Espero que este e-mail o(a) encontre bem.\n\n"
+            f"Estou conduzindo uma pesquisa acadêmica e gostaria de solicitar, se possível, uma cópia em PDF do seu artigo:\n\n"
+            f"\"{title}\"\n"
+            f"DOI: https://doi.org/{clean}\n\n"
+            f"Como nosso acesso institucional não contempla este periódico específico, ficaria muito grato(a) pelo envio de um manuscrito ou preprint para fins exclusivamente acadêmicos e educacionais.\n\n"
+            f"Muito obrigado pelo seu tempo e contribuição científica!\n\n"
+            f"Atenciosamente,"
+        )
+    else:
+        subject = f"Academic reprint request: {title}"
+        body = (
+            f"Dear Dr. {author_name},\n\n"
+            f"I hope this message finds you well.\n\n"
+            f"I am currently conducting academic research and would like to politely request a copy of your paper:\n\n"
+            f"\"{title}\"\n"
+            f"DOI: https://doi.org/{clean}\n\n"
+            f"Our institution currently lacks direct subscription access to this journal. I would be immensely grateful if you could share a preprint or author accepted manuscript for research and educational purposes.\n\n"
+            f"Thank you very much for your time and impactful research!\n\n"
+            f"Best regards,"
+        )
+
+    return {
+        "doi": clean,
+        "paper_title": title,
+        "author": author_name,
+        "subject": subject,
+        "message_template": body,
+        "researchgate_search": f"https://www.researchgate.net/search/publication?q={clean}"
+    }
+
