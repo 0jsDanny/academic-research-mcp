@@ -91,6 +91,33 @@ def _check_unpaywall_oa(doi: str) -> Optional[str]:
     return None
 
 
+def _check_annas_archive_scidb(doi: str) -> Optional[str]:
+    """Check Anna's Archive SciDB if an authenticated session cookie (ANNAS_ARCHIVE_COOKIE) is set."""
+    cookie = os.getenv("ANNAS_ARCHIVE_COOKIE")
+    if not cookie:
+        return None
+    try:
+        clean = _clean_doi(doi)
+        headers = {
+            "User-Agent": DEFAULT_USER_AGENT,
+            "Cookie": cookie,
+            "Referer": "https://annas-archive.gl/",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        }
+        resp = requests.get(f"https://annas-archive.gl/scidb/{clean}", headers=headers, timeout=DEFAULT_TIMEOUT)
+        if resp.status_code == 200:
+            soup = BeautifulSoup(resp.text, "html.parser")
+            for a in soup.find_all("a", href=True):
+                href = a["href"]
+                if "/md5/" in href or "download" in href.lower() or "ipfs" in href.lower():
+                    if href.startswith("/"):
+                        return f"https://annas-archive.gl{href}"
+                    return href
+    except Exception as e:
+        logger.debug(f"Anna's Archive SciDB check failed: {e}")
+    return None
+
+
 def search_europe_pmc(query: str, num_results: int = 10, sort_by: str = "citations") -> List[Dict[str, Any]]:
     """Search Europe PMC / PubMed database with citation sorting."""
     sort_param = "CITED desc" if sort_by == "citations" else ""
@@ -340,14 +367,28 @@ def resolve_paper_access(doi: str, known_oa_url: Optional[str] = None) -> Dict[s
             "provider": "unpaywall"
         }
 
+    # 5. Check Anna's Archive SciDB (if authenticated session cookie is provided)
+    scidb_url = _check_annas_archive_scidb(clean)
+    if scidb_url:
+        return {
+            "doi": clean,
+            "status": "success",
+            "pdf_url": scidb_url,
+            "source_type": "annas_archive_scidb",
+            "provider": "annas-archive.gl"
+        }
+
     return {
         "doi": clean,
         "status": "not_found",
         "error": "PDF could not be resolved automatically on Sci-Hub or Open Access repositories.",
         "fallback_search_links": {
-            "annas_archive": f"https://annas-archive.li/search?q={clean}",
+            "annas_archive_scidb": f"https://annas-archive.gl/scidb/{clean}",
+            "annas_archive_mirror_pk": f"https://annas-archive.pk/scidb/{clean}",
+            "annas_archive_search": f"https://annas-archive.gl/search?q={clean}",
             "google_scholar": f"https://scholar.google.com/scholar?q={clean}",
-            "researchgate": f"https://www.researchgate.net/search/publication?q={clean}"
+            "researchgate": f"https://www.researchgate.net/search/publication?q={clean}",
+            "mirrors_status_monitor": "https://open-slum.org/annas.html"
         }
     }
 
